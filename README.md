@@ -19,6 +19,16 @@ npm run dev
 
 La app se abre normalmente en `http://localhost:3000`.
 
+## GitHub Pages
+
+La version estatica que funciona directamente en GitHub Pages vive en `docs/index.html`.
+
+URL prevista:
+
+```text
+https://packojacko.github.io/manolisimo/
+```
+
 ## Siguiente paso
 
 El MVP usa almacenamiento local. Para que Packo y Manolo puedan compartir el mismo archivo desde varios dispositivos, el siguiente paso sera conectar una base de datos real y, despues, anadir subida de audios o capturas.
