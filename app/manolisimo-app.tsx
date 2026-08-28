@@ -1,6 +1,38 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+type SpeechRecognitionEventLike = Event & {
+  results: ArrayLike<{
+    0: { transcript: string };
+    isFinal: boolean;
+  }>;
+};
+
+type SpeechRecognitionErrorEventLike = Event & {
+  error: string;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 type IdeaStatus = 'Pendiente' | 'Favorita' | 'Dibujando' | 'Hecha';
 
@@ -140,11 +172,18 @@ export default function ManolisimoApp() {
   const [author, setAuthor] = useState('Packo');
   const [activeStatus, setActiveStatus] = useState<IdeaStatus | 'Todas'>('Todas');
   const [activeId, setActiveId] = useState(1);
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const [speechError, setSpeechError] = useState('');
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const speechBaseRef = useRef('');
 
   useEffect(() => {
     const saved = window.localStorage.getItem('manolisimo-ideas');
 
     if (saved) {
+      // Local storage is the app's existing device-level source of saved ideas.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIdeas(JSON.parse(saved));
     }
   }, []);
@@ -152,6 +191,10 @@ export default function ManolisimoApp() {
   useEffect(() => {
     window.localStorage.setItem('manolisimo-ideas', JSON.stringify(ideas));
   }, [ideas]);
+
+  useEffect(() => {
+    return () => recognitionRef.current?.abort();
+  }, []);
 
   const filteredIdeas = useMemo(() => {
     if (activeStatus === 'Todas') {
@@ -172,6 +215,65 @@ export default function ManolisimoApp() {
     setIdeas((current) => [idea, ...current]);
     setActiveId(idea.id);
     setRawIdea('');
+  }
+
+  function toggleDictation() {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!Recognition) {
+      setSpeechSupported(false);
+      setSpeechError('Este navegador no permite transcribir la voz.');
+      return;
+    }
+
+    const recognition = new Recognition();
+    const existingText = rawIdea.trim();
+    speechBaseRef.current = existingText ? `${existingText} ` : '';
+    recognition.lang = 'es-ES';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      let transcript = '';
+
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += event.results[index][0].transcript;
+      }
+
+      setRawIdea(`${speechBaseRef.current}${transcript}`.trimStart());
+    };
+
+    recognition.onerror = (event) => {
+      const message =
+        event.error === 'not-allowed'
+          ? 'Necesito permiso para usar el micrófono.'
+          : event.error === 'no-speech'
+            ? 'No he oído nada. Pulsa el micrófono para intentarlo de nuevo.'
+            : 'No se ha podido transcribir. Inténtalo otra vez.';
+      setSpeechError(message);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setSpeechError('');
+    setIsListening(true);
+
+    try {
+      recognition.start();
+    } catch {
+      setIsListening(false);
+      setSpeechError('No se ha podido iniciar el micrófono. Inténtalo otra vez.');
+    }
   }
 
   function updateStatus(id: number, status: IdeaStatus) {
@@ -199,12 +301,33 @@ export default function ManolisimoApp() {
             <p className="eyebrow">Entrada rápida</p>
             <h2 id="new-idea-title">Nueva gilipollez</h2>
           </div>
-          <textarea
-            aria-label="Escribe una idea en bruto"
-            value={rawIdea}
-            onChange={(event) => setRawIdea(event.target.value)}
-            placeholder="Ej: un notario que certifica si una croqueta está demasiado caliente..."
-          />
+          <div className="idea-input">
+            <textarea
+              aria-label="Escribe o dicta una idea en bruto"
+              value={rawIdea}
+              onChange={(event) => setRawIdea(event.target.value)}
+              placeholder="Ej: un notario que certifica si una croqueta está demasiado caliente..."
+            />
+            <div className="dictation-row">
+              <button
+                aria-label={isListening ? 'Detener grabación' : 'Dictar idea con el micrófono'}
+                aria-pressed={isListening}
+                className={isListening ? 'dictation-button listening' : 'dictation-button'}
+                disabled={!speechSupported}
+                onClick={toggleDictation}
+                type="button"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4Zm7-4a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.08A7 7 0 0 0 19 11Z" />
+                </svg>
+                {isListening ? 'Detener' : 'Hablar'}
+              </button>
+              <span aria-live="polite">
+                {isListening ? 'Escuchando… habla con normalidad' : 'También puedes dictar la idea'}
+              </span>
+            </div>
+            {speechError && <p className="speech-error" role="alert">{speechError}</p>}
+          </div>
           <div className="capture-actions">
             <label>
               Culpable
