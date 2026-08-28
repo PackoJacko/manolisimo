@@ -50,6 +50,11 @@ type Idea = {
   createdAt: string;
 };
 
+type EditableIdeaFields = Pick<
+  Idea,
+  'raw' | 'summary' | 'why' | 'illustration' | 'productText'
+>;
+
 type DatabaseIdea = {
   id: number;
   title: string;
@@ -153,6 +158,27 @@ const productPhrases = [
   'Ojo que viene',
   'A mi manera',
 ];
+
+const editableFieldLabels: Array<{
+  key: keyof EditableIdeaFields;
+  label: string;
+  multiline: boolean;
+}> = [
+  { key: 'raw', label: 'Frase original', multiline: true },
+  { key: 'summary', label: 'Versión ordenada', multiline: true },
+  { key: 'why', label: 'Por qué hace gracia', multiline: true },
+  { key: 'illustration', label: 'Posible ilustración', multiline: true },
+  { key: 'productText', label: 'Texto para producto', multiline: false },
+];
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 function titleCase(value: string) {
   return value
@@ -337,6 +363,173 @@ async function saveSharedStatus(id: number, status: IdeaStatus) {
   }
 }
 
+async function saveSharedIdeaDetails(id: number, fields: EditableIdeaFields) {
+  const response = await fetch(`${databaseUrl}?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: { ...databaseHeaders, Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      raw: fields.raw,
+      summary: fields.summary,
+      why: fields.why,
+      illustration: fields.illustration,
+      product_text: fields.productText,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Cambios guardados aquí; pendiente de sincronizar.');
+  }
+}
+
+function makeDraft(idea: Idea): EditableIdeaFields {
+  return {
+    raw: idea.raw,
+    summary: idea.summary,
+    why: idea.why,
+    illustration: idea.illustration,
+    productText: idea.productText,
+  };
+}
+
+function exportIdeaPdf(idea: Idea) {
+  const popup = window.open('', '_blank');
+
+  if (!popup) {
+    window.alert('No he podido abrir la ventana de PDF. Revisa el bloqueador de ventanas.');
+    return;
+  }
+
+  const fields = [
+    ['Frase original', idea.raw],
+    ['Versión ordenada', idea.summary],
+    ['Por qué hace gracia', idea.why],
+    ['Posible ilustración', idea.illustration],
+    ['Texto para producto', idea.productText],
+  ];
+
+  popup.document.write(`
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(idea.title)} · Manolisimo</title>
+        <style>
+          @page { size: A4; margin: 16mm; }
+          * { box-sizing: border-box; }
+          body {
+            color: #20201c;
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+          }
+          .sheet {
+            border: 3px solid #20201c;
+            min-height: 260mm;
+            padding: 22px;
+          }
+          .brand {
+            align-items: center;
+            border-bottom: 3px solid #20201c;
+            display: flex;
+            gap: 16px;
+            padding-bottom: 18px;
+          }
+          .brand img {
+            background: #f6c119;
+            border: 2px solid #20201c;
+            height: 72px;
+            object-fit: cover;
+            width: 72px;
+          }
+          .eyebrow {
+            color: #2f6d5a;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+          }
+          h1 {
+            font-size: 42px;
+            line-height: 0.95;
+            margin: 4px 0 0;
+          }
+          .meta {
+            color: #776f63;
+            display: flex;
+            font-size: 13px;
+            font-weight: 700;
+            justify-content: space-between;
+            margin: 14px 0 24px;
+          }
+          .field {
+            border-top: 2px solid #ded5c5;
+            padding: 14px 0;
+          }
+          dt {
+            color: #2f6d5a;
+            font-size: 12px;
+            font-weight: 900;
+            margin-bottom: 7px;
+            text-transform: uppercase;
+          }
+          dd {
+            font-size: 17px;
+            line-height: 1.45;
+            margin: 0;
+          }
+          .product {
+            background: #20201c;
+            color: #fffaf0;
+            display: inline-block;
+            font-size: 32px;
+            font-weight: 950;
+            line-height: 1;
+            padding: 12px 14px;
+          }
+          .print-note {
+            color: #776f63;
+            font-size: 12px;
+            margin-top: 24px;
+          }
+          @media print {
+            .print-note { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <section class="sheet">
+          <header class="brand">
+            <img src="${new URL('/benitez-logo.jpg', window.location.origin).href}" alt="Logo Benítez+" />
+            <div>
+              <div class="eyebrow">Ficha Manolisimo · ${escapeHtml(idea.category)}</div>
+              <h1>${escapeHtml(idea.title)}</h1>
+            </div>
+          </header>
+          <div class="meta">
+            <span>${escapeHtml(idea.author)}</span>
+            <span>${escapeHtml(idea.status)} · ${escapeHtml(idea.createdAt)}</span>
+          </div>
+          <dl>
+            ${fields
+              .map(
+                ([label, value]) => `
+                  <div class="field">
+                    <dt>${escapeHtml(label)}</dt>
+                    <dd class="${label === 'Texto para producto' ? 'product' : ''}">${escapeHtml(value)}</dd>
+                  </div>
+                `,
+              )
+              .join('')}
+          </dl>
+          <p class="print-note">Usa Imprimir o Guardar como PDF para compartir esta ficha.</p>
+        </section>
+        <script>
+          window.addEventListener('load', () => window.print());
+        </script>
+      </body>
+    </html>
+  `);
+  popup.document.close();
+}
+
 export default function ManolisimoApp() {
   const [ideas, setIdeas] = useState<Idea[]>(examples);
   const [rawIdea, setRawIdea] = useState('');
@@ -348,6 +541,8 @@ export default function ManolisimoApp() {
   const [speechError, setSpeechError] = useState('');
   const [syncMessage, setSyncMessage] = useState('Conectando…');
   const [syncError, setSyncError] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<EditableIdeaFields | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const speechBaseRef = useRef('');
 
@@ -418,6 +613,7 @@ export default function ManolisimoApp() {
 
   const activeIdea =
     filteredIdeas.find((idea) => idea.id === activeId) ?? filteredIdeas[0];
+  const isEditing = Boolean(activeIdea && editingId === activeIdea.id && draft);
 
   async function addIdea() {
     if (!rawIdea.trim()) {
@@ -508,6 +704,43 @@ export default function ManolisimoApp() {
 
     try {
       await saveSharedStatus(id, status);
+      setSyncMessage('Sincronizado');
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Sin conexión · guardado local');
+      setSyncError(true);
+    }
+  }
+
+  function startEditing(idea: Idea) {
+    setEditingId(idea.id);
+    setDraft(makeDraft(idea));
+  }
+
+  function updateDraft(key: keyof EditableIdeaFields, value: string) {
+    setDraft((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setDraft(null);
+  }
+
+  async function saveEdits(idea: Idea) {
+    if (!draft) {
+      return;
+    }
+
+    const updatedIdea = { ...idea, ...draft };
+    setIdeas((current) =>
+      current.map((currentIdea) => (currentIdea.id === idea.id ? updatedIdea : currentIdea)),
+    );
+    setEditingId(null);
+    setDraft(null);
+    setSyncMessage('Guardando…');
+    setSyncError(false);
+
+    try {
+      await saveSharedIdeaDetails(idea.id, draft);
       setSyncMessage('Sincronizado');
     } catch (error) {
       setSyncMessage(error instanceof Error ? error.message : 'Sin conexión · guardado local');
@@ -633,40 +866,71 @@ export default function ManolisimoApp() {
                   <p className="eyebrow">{activeIdea.category}</p>
                   <h2>{activeIdea.title}</h2>
                 </div>
-                <select
-                  aria-label="Cambiar estado"
-                  value={activeIdea.status}
-                  onChange={(event) => {
-                    void updateStatus(activeIdea.id, event.target.value as IdeaStatus);
-                  }}
-                >
-                  {statuses.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
+                <div className="idea-tools">
+                  <select
+                    aria-label="Cambiar estado"
+                    value={activeIdea.status}
+                    onChange={(event) => {
+                      void updateStatus(activeIdea.id, event.target.value as IdeaStatus);
+                    }}
+                  >
+                    {statuses.map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </select>
+                  <button className="tool-button" onClick={() => exportIdeaPdf(activeIdea)} type="button">
+                    PDF
+                  </button>
+                  {isEditing ? (
+                    <>
+                      <button
+                        className="tool-button primary"
+                        onClick={() => {
+                          void saveEdits(activeIdea);
+                        }}
+                        type="button"
+                      >
+                        Guardar
+                      </button>
+                      <button className="tool-button" onClick={cancelEditing} type="button">
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button className="tool-button primary" onClick={() => startEditing(activeIdea)} type="button">
+                      Editar
+                    </button>
+                  )}
+                </div>
               </div>
 
               <dl className="idea-fields">
-                <div>
-                  <dt>Frase original</dt>
-                  <dd>{activeIdea.raw}</dd>
-                </div>
-                <div>
-                  <dt>Versión ordenada</dt>
-                  <dd>{activeIdea.summary}</dd>
-                </div>
-                <div>
-                  <dt>Por qué hace gracia</dt>
-                  <dd>{activeIdea.why}</dd>
-                </div>
-                <div>
-                  <dt>Posible ilustración</dt>
-                  <dd>{activeIdea.illustration}</dd>
-                </div>
-                <div>
-                  <dt>Texto para producto</dt>
-                  <dd className="product-text">{activeIdea.productText}</dd>
-                </div>
+                {editableFieldLabels.map((field) => (
+                  <div key={field.key}>
+                    <dt>{field.label}</dt>
+                    <dd className={field.key === 'productText' && !isEditing ? 'product-text' : ''}>
+                      {isEditing && draft ? (
+                        field.multiline ? (
+                          <textarea
+                            aria-label={field.label}
+                            className="edit-textarea"
+                            value={draft[field.key]}
+                            onChange={(event) => updateDraft(field.key, event.target.value)}
+                          />
+                        ) : (
+                          <input
+                            aria-label={field.label}
+                            className="edit-input"
+                            value={draft[field.key]}
+                            onChange={(event) => updateDraft(field.key, event.target.value)}
+                          />
+                        )
+                      ) : (
+                        activeIdea[field.key]
+                      )}
+                    </dd>
+                  </div>
+                ))}
               </dl>
 
               <footer>

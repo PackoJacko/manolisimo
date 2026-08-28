@@ -398,8 +398,30 @@ select {
   margin-bottom: 24px;
 }
 
+.idea-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.idea-tools select,
 .idea-card-header select {
   min-width: 148px;
+}
+
+.tool-button {
+  background: #fffaf0;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  font-weight: 900;
+  min-height: 44px;
+  padding: 0 13px;
+}
+
+.tool-button.primary {
+  background: var(--yellow);
 }
 
 .idea-fields {
@@ -426,6 +448,17 @@ dd {
   font-size: 1rem;
   line-height: 1.45;
   margin: 0;
+}
+
+.edit-textarea {
+  min-height: 92px;
+}
+
+.edit-input,
+.edit-textarea {
+  background: #fffaf0;
+  border-color: var(--ink);
+  width: 100%;
 }
 
 .product-text {
@@ -483,6 +516,7 @@ footer {
 @media (max-width: 560px) {
   .topbar,
   .idea-card-header,
+  .idea-tools,
   footer {
     align-items: stretch;
     flex-direction: column;

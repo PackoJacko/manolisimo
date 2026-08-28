@@ -416,8 +416,30 @@
         margin-bottom: 24px;
       }
 
+      .idea-tools {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+
+      .idea-tools select,
       .idea-card-header select {
         min-width: 148px;
+      }
+
+      .tool-button {
+        background: #fffaf0;
+        border: 2px solid var(--ink);
+        color: var(--ink);
+        font-weight: 900;
+        min-height: 44px;
+        padding: 0 13px;
+      }
+
+      .tool-button.primary {
+        background: var(--yellow);
       }
 
       .idea-fields {
@@ -444,6 +466,17 @@
         font-size: 1rem;
         line-height: 1.45;
         margin: 0;
+      }
+
+      .edit-textarea {
+        min-height: 92px;
+      }
+
+      .edit-input,
+      .edit-textarea {
+        background: #fffaf0;
+        border-color: var(--ink);
+        width: 100%;
       }
 
       .product-text {
@@ -508,6 +541,7 @@
       @media (max-width: 560px) {
         .topbar,
         .idea-card-header,
+        .idea-tools,
         .idea-footer {
           align-items: stretch;
           flex-direction: column;
@@ -697,9 +731,19 @@
         "A mi manera",
       ];
 
+      const editableFields = [
+        ["raw", "Frase original", true],
+        ["summary", "Version ordenada", true],
+        ["why", "Por que hace gracia", true],
+        ["illustration", "Posible ilustracion", true],
+        ["productText", "Texto para producto", false],
+      ];
+
       let ideas = readIdeas();
       let activeStatus = "Todas";
       let activeId = ideas[0]?.id;
+      let editingId = null;
+      let editDraft = null;
 
       function readIdeas() {
         const saved = window.localStorage.getItem(storageKey);
@@ -803,6 +847,173 @@
         if (!response.ok) {
           throw new Error("Estado guardado localmente; pendiente de sincronizar.");
         }
+      }
+
+      async function saveSharedIdeaDetails(id, fields) {
+        const response = await fetch(`${databaseUrl}?id=eq.${id}`, {
+          method: "PATCH",
+          headers: { ...databaseHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({
+            raw: fields.raw,
+            summary: fields.summary,
+            why: fields.why,
+            illustration: fields.illustration,
+            product_text: fields.productText,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Cambios guardados localmente; pendiente de sincronizar.");
+        }
+      }
+
+      function makeDraft(idea) {
+        return {
+          raw: idea.raw,
+          summary: idea.summary,
+          why: idea.why,
+          illustration: idea.illustration,
+          productText: idea.productText,
+        };
+      }
+
+      function exportIdeaPdf(idea) {
+        const popup = window.open("", "_blank");
+
+        if (!popup) {
+          window.alert("No he podido abrir la ventana de PDF. Revisa el bloqueador de ventanas.");
+          return;
+        }
+
+        const fields = [
+          ["Frase original", idea.raw],
+          ["Version ordenada", idea.summary],
+          ["Por que hace gracia", idea.why],
+          ["Posible ilustracion", idea.illustration],
+          ["Texto para producto", idea.productText],
+        ];
+
+        popup.document.write(`
+          <!doctype html>
+          <html lang="es">
+            <head>
+              <meta charset="utf-8" />
+              <title>${escapeHtml(idea.title)} · Manolisimo</title>
+              <style>
+                @page { size: A4; margin: 16mm; }
+                * { box-sizing: border-box; }
+                body {
+                  color: #20201c;
+                  font-family: Arial, Helvetica, sans-serif;
+                  margin: 0;
+                }
+                .sheet {
+                  border: 3px solid #20201c;
+                  min-height: 260mm;
+                  padding: 22px;
+                }
+                .brand {
+                  align-items: center;
+                  border-bottom: 3px solid #20201c;
+                  display: flex;
+                  gap: 16px;
+                  padding-bottom: 18px;
+                }
+                .brand img {
+                  background: #f6c119;
+                  border: 2px solid #20201c;
+                  height: 72px;
+                  object-fit: cover;
+                  width: 72px;
+                }
+                .eyebrow {
+                  color: #2f6d5a;
+                  font-size: 11px;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                }
+                h1 {
+                  font-size: 42px;
+                  line-height: 0.95;
+                  margin: 4px 0 0;
+                }
+                .meta {
+                  color: #776f63;
+                  display: flex;
+                  font-size: 13px;
+                  font-weight: 700;
+                  justify-content: space-between;
+                  margin: 14px 0 24px;
+                }
+                .field {
+                  border-top: 2px solid #ded5c5;
+                  padding: 14px 0;
+                }
+                dt {
+                  color: #2f6d5a;
+                  font-size: 12px;
+                  font-weight: 900;
+                  margin-bottom: 7px;
+                  text-transform: uppercase;
+                }
+                dd {
+                  font-size: 17px;
+                  line-height: 1.45;
+                  margin: 0;
+                }
+                .product {
+                  background: #20201c;
+                  color: #fffaf0;
+                  display: inline-block;
+                  font-size: 32px;
+                  font-weight: 950;
+                  line-height: 1;
+                  padding: 12px 14px;
+                }
+                .print-note {
+                  color: #776f63;
+                  font-size: 12px;
+                  margin-top: 24px;
+                }
+                @media print {
+                  .print-note { display: none; }
+                }
+              </style>
+            </head>
+            <body>
+              <section class="sheet">
+                <header class="brand">
+                  <img src="${new URL("./assets/benitez-logo.jpg", window.location.href).href}" alt="Logo Benitez+" />
+                  <div>
+                    <div class="eyebrow">Ficha Manolisimo · ${escapeHtml(idea.category)}</div>
+                    <h1>${escapeHtml(idea.title)}</h1>
+                  </div>
+                </header>
+                <div class="meta">
+                  <span>${escapeHtml(idea.author)}</span>
+                  <span>${escapeHtml(idea.status)} · ${escapeHtml(idea.createdAt)}</span>
+                </div>
+                <dl>
+                  ${fields
+                    .map(
+                      ([label, value]) => `
+                        <div class="field">
+                          <dt>${escapeHtml(label)}</dt>
+                          <dd class="${label === "Texto para producto" ? "product" : ""}">${escapeHtml(value)}</dd>
+                        </div>
+                      `,
+                    )
+                    .join("")}
+                </dl>
+                <p class="print-note">Usa Imprimir o Guardar como PDF para compartir esta ficha.</p>
+              </section>
+              <script>
+                window.addEventListener("load", () => window.print());
+              <\/script>
+            </body>
+          </html>
+        `);
+        popup.document.close();
       }
 
       function escapeHtml(value) {
@@ -981,9 +1192,11 @@
           activeStatus === "Todas"
             ? ideas
             : ideas.filter((idea) => idea.status === activeStatus);
-        const activeIdea = ideas.find((idea) => idea.id === activeId) || visible[0];
+        const activeIdea = visible.find((idea) => idea.id === activeId) || visible[0];
 
         if (!activeIdea) {
+          editingId = null;
+          editDraft = null;
           detailNode.className = "empty-state";
           detailNode.innerHTML = `
             <h2>No hay ideas en este filtro</h2>
@@ -993,6 +1206,7 @@
         }
 
         activeId = activeIdea.id;
+        const isEditing = editingId === activeIdea.id && editDraft;
         detailNode.className = "idea-card";
         detailNode.innerHTML = `
           <div class="idea-card-header">
@@ -1000,37 +1214,45 @@
               <p class="eyebrow">${escapeHtml(activeIdea.category)}</p>
               <h2>${escapeHtml(activeIdea.title)}</h2>
             </div>
-            <select aria-label="Cambiar estado" id="status-select">
-              ${statuses
-                .map(
-                  (status) =>
-                    `<option ${activeIdea.status === status ? "selected" : ""}>${status}</option>`,
-                )
-                .join("")}
-            </select>
+            <div class="idea-tools">
+              <select aria-label="Cambiar estado" id="status-select">
+                ${statuses
+                  .map(
+                    (status) =>
+                      `<option ${activeIdea.status === status ? "selected" : ""}>${status}</option>`,
+                  )
+                  .join("")}
+              </select>
+              <button class="tool-button" id="pdf-button" type="button">PDF</button>
+              ${
+                isEditing
+                  ? `
+                    <button class="tool-button primary" id="save-edit-button" type="button">Guardar</button>
+                    <button class="tool-button" id="cancel-edit-button" type="button">Cancelar</button>
+                  `
+                  : `<button class="tool-button primary" id="edit-button" type="button">Editar</button>`
+              }
+            </div>
           </div>
 
           <dl class="idea-fields">
-            <div>
-              <dt>Frase original</dt>
-              <dd>${escapeHtml(activeIdea.raw)}</dd>
-            </div>
-            <div>
-              <dt>Version ordenada</dt>
-              <dd>${escapeHtml(activeIdea.summary)}</dd>
-            </div>
-            <div>
-              <dt>Por que hace gracia</dt>
-              <dd>${escapeHtml(activeIdea.why)}</dd>
-            </div>
-            <div>
-              <dt>Posible ilustracion</dt>
-              <dd>${escapeHtml(activeIdea.illustration)}</dd>
-            </div>
-            <div>
-              <dt>Texto para producto</dt>
-              <dd class="product-text">${escapeHtml(activeIdea.productText)}</dd>
-            </div>
+            ${editableFields
+              .map(([key, label, multiline]) => {
+                const value = isEditing ? editDraft[key] : activeIdea[key];
+                const control = multiline
+                  ? `<textarea class="edit-textarea" aria-label="${label}" data-edit-field="${key}">${escapeHtml(value)}</textarea>`
+                  : `<input class="edit-input" aria-label="${label}" data-edit-field="${key}" value="${escapeHtml(value)}" />`;
+
+                return `
+                  <div>
+                    <dt>${label}</dt>
+                    <dd class="${key === "productText" && !isEditing ? "product-text" : ""}">
+                      ${isEditing ? control : escapeHtml(value)}
+                    </dd>
+                  </div>
+                `;
+              })
+              .join("")}
           </dl>
 
           <p class="github-note">
@@ -1056,6 +1278,54 @@
             setSyncStatus(error.message, true);
           }
         });
+
+        document.querySelector("#pdf-button").addEventListener("click", () => {
+          exportIdeaPdf(activeIdea);
+        });
+
+        const editButton = document.querySelector("#edit-button");
+        if (editButton) {
+          editButton.addEventListener("click", () => {
+            editingId = activeIdea.id;
+            editDraft = makeDraft(activeIdea);
+            render();
+          });
+        }
+
+        const cancelButton = document.querySelector("#cancel-edit-button");
+        if (cancelButton) {
+          cancelButton.addEventListener("click", () => {
+            editingId = null;
+            editDraft = null;
+            render();
+          });
+        }
+
+        document.querySelectorAll("[data-edit-field]").forEach((field) => {
+          field.addEventListener("input", (event) => {
+            editDraft[event.target.dataset.editField] = event.target.value;
+          });
+        });
+
+        const saveButton = document.querySelector("#save-edit-button");
+        if (saveButton) {
+          saveButton.addEventListener("click", async () => {
+            const updatedIdea = { ...activeIdea, ...editDraft };
+            ideas = ideas.map((idea) => (idea.id === activeIdea.id ? updatedIdea : idea));
+            editingId = null;
+            editDraft = null;
+            saveIdeas();
+            render();
+            setSyncStatus("Guardando...");
+
+            try {
+              await saveSharedIdeaDetails(activeIdea.id, makeDraft(updatedIdea));
+              setSyncStatus("Sincronizado");
+            } catch (error) {
+              setSyncStatus(error.message, true);
+            }
+          });
+        }
       }
 
       function render() {

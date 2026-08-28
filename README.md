@@ -7,6 +7,8 @@ Archivo vivo para capturar ideas absurdas, ordenarlas como fichas de ilustracion
 - Guarda ideas rapidas desde una entrada sencilla.
 - Convierte cada frase en una ficha con titulo, resumen, gracia, posible ilustracion y texto para producto.
 - Usa el ADN Benitez+ para orientar las fichas hacia refran torcido, literalidad visual y personaje expresivo.
+- Permite editar la frase original, la version ordenada, la explicacion de la gracia, la posible ilustracion y el texto de producto.
+- Permite exportar una ficha a PDF desde el navegador para pedir opinion o compartirla.
 - Permite cambiar el estado de cada idea: Pendiente, Favorita, Dibujando o Hecha.
 - Filtra la lista por estado.
 - Guarda los datos en el navegador con `localStorage`.
