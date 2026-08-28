@@ -876,7 +876,7 @@
 
       function readIdeas() {
         const saved = window.localStorage.getItem(storageKey);
-        return saved ? JSON.parse(saved) : examples;
+        return saved ? JSON.parse(saved) : [];
       }
 
       function saveIdeas() {
@@ -1760,7 +1760,6 @@
         const localIdeas = [...ideas];
 
         try {
-          await importLocalIdeas(localIdeas);
           [ideas, sketches] = await Promise.all([
             fetchSharedIdeas(),
             fetchSharedSketches(),

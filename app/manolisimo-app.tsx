@@ -644,7 +644,7 @@ function exportIdeaPdf(idea: Idea) {
 }
 
 export default function ManolisimoApp() {
-  const [ideas, setIdeas] = useState<Idea[]>(examples);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [sketches, setSketches] = useState<IdeaSketch[]>([]);
   const [rawIdea, setRawIdea] = useState('');
   const [author, setAuthor] = useState('Packo');
@@ -665,12 +665,11 @@ export default function ManolisimoApp() {
 
   useEffect(() => {
     const saved = window.localStorage.getItem('manolisimo-ideas');
-    const localIdeas = saved ? (JSON.parse(saved) as Idea[]) : examples;
+    const localIdeas = saved ? (JSON.parse(saved) as Idea[]) : [];
     let cancelled = false;
 
     async function startSync() {
       try {
-        await importLocalIdeas(localIdeas);
         const [sharedIdeas, sharedSketches] = await Promise.all([
           fetchSharedIdeas(),
           fetchSharedSketches(),
