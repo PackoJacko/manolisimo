@@ -50,6 +50,28 @@ type Idea = {
   createdAt: string;
 };
 
+type DatabaseIdea = {
+  id: number;
+  title: string;
+  raw: string;
+  summary: string;
+  why: string;
+  illustration: string;
+  product_text: string;
+  category: string;
+  status: IdeaStatus;
+  author: string;
+  created_at: string;
+};
+
+const databaseUrl = 'https://vlajqijjekgmwwajugfl.supabase.co/rest/v1/ideas';
+const databaseKey = 'sb_publishable_rLOoqZ7G1wwLzG32tTZhtw_0mbOJWbL';
+
+const databaseHeaders = {
+  apikey: databaseKey,
+  'Content-Type': 'application/json',
+};
+
 const statuses: IdeaStatus[] = ['Pendiente', 'Favorita', 'Dibujando', 'Hecha'];
 
 const examples: Idea[] = [
@@ -166,6 +188,95 @@ function makeIdea(raw: string, author: string): Idea {
   };
 }
 
+function toDatabaseIdea(idea: Idea): DatabaseIdea {
+  return {
+    id: idea.id,
+    title: idea.title,
+    raw: idea.raw,
+    summary: idea.summary,
+    why: idea.why,
+    illustration: idea.illustration,
+    product_text: idea.productText,
+    category: idea.category,
+    status: idea.status,
+    author: idea.author,
+    created_at: idea.createdAt,
+  };
+}
+
+function fromDatabaseIdea(idea: DatabaseIdea): Idea {
+  return {
+    id: Number(idea.id),
+    title: idea.title,
+    raw: idea.raw,
+    summary: idea.summary,
+    why: idea.why,
+    illustration: idea.illustration,
+    productText: idea.product_text,
+    category: idea.category,
+    status: idea.status,
+    author: idea.author,
+    createdAt: idea.created_at,
+  };
+}
+
+async function fetchSharedIdeas() {
+  const response = await fetch(
+    `${databaseUrl}?select=id,title,raw,summary,why,illustration,product_text,category,status,author,created_at&order=created_at.desc,id.desc`,
+    { headers: databaseHeaders },
+  );
+
+  if (!response.ok) {
+    throw new Error('No se han podido cargar las ideas compartidas.');
+  }
+
+  const data = (await response.json()) as DatabaseIdea[];
+  return data.map(fromDatabaseIdea);
+}
+
+async function importLocalIdeas(ideas: Idea[]) {
+  if (!ideas.length) {
+    return;
+  }
+
+  const response = await fetch(`${databaseUrl}?on_conflict=id`, {
+    method: 'POST',
+    headers: {
+      ...databaseHeaders,
+      Prefer: 'resolution=ignore-duplicates,return=minimal',
+    },
+    body: JSON.stringify(ideas.map(toDatabaseIdea)),
+  });
+
+  if (!response.ok) {
+    throw new Error('No se han podido importar las ideas de este dispositivo.');
+  }
+}
+
+async function saveSharedIdea(idea: Idea) {
+  const response = await fetch(databaseUrl, {
+    method: 'POST',
+    headers: { ...databaseHeaders, Prefer: 'return=minimal' },
+    body: JSON.stringify(toDatabaseIdea(idea)),
+  });
+
+  if (!response.ok) {
+    throw new Error('La idea se ha guardado aquí, pero aún no se ha sincronizado.');
+  }
+}
+
+async function saveSharedStatus(id: number, status: IdeaStatus) {
+  const response = await fetch(`${databaseUrl}?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: { ...databaseHeaders, Prefer: 'return=minimal' },
+    body: JSON.stringify({ status }),
+  });
+
+  if (!response.ok) {
+    throw new Error('El estado ha cambiado aquí, pero aún no se ha sincronizado.');
+  }
+}
+
 export default function ManolisimoApp() {
   const [ideas, setIdeas] = useState<Idea[]>(examples);
   const [rawIdea, setRawIdea] = useState('');
@@ -175,17 +286,58 @@ export default function ManolisimoApp() {
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [speechError, setSpeechError] = useState('');
+  const [syncMessage, setSyncMessage] = useState('Conectando…');
+  const [syncError, setSyncError] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const speechBaseRef = useRef('');
 
   useEffect(() => {
     const saved = window.localStorage.getItem('manolisimo-ideas');
+    const localIdeas = saved ? (JSON.parse(saved) as Idea[]) : examples;
+    let cancelled = false;
 
-    if (saved) {
-      // Local storage is the app's existing device-level source of saved ideas.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIdeas(JSON.parse(saved));
+    async function startSync() {
+      try {
+        await importLocalIdeas(localIdeas);
+        const sharedIdeas = await fetchSharedIdeas();
+
+        if (!cancelled) {
+          setIdeas(sharedIdeas);
+          setSyncMessage('Sincronizado');
+          setSyncError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setIdeas(localIdeas);
+          setSyncMessage('Sin conexión · guardado local');
+          setSyncError(true);
+        }
+      }
     }
+
+    void startSync();
+
+    const interval = window.setInterval(async () => {
+      try {
+        const sharedIdeas = await fetchSharedIdeas();
+
+        if (!cancelled) {
+          setIdeas(sharedIdeas);
+          setSyncMessage('Sincronizado');
+          setSyncError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setSyncMessage('Sin conexión · guardado local');
+          setSyncError(true);
+        }
+      }
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -206,7 +358,7 @@ export default function ManolisimoApp() {
 
   const activeIdea = ideas.find((idea) => idea.id === activeId) ?? ideas[0];
 
-  function addIdea() {
+  async function addIdea() {
     if (!rawIdea.trim()) {
       return;
     }
@@ -215,6 +367,16 @@ export default function ManolisimoApp() {
     setIdeas((current) => [idea, ...current]);
     setActiveId(idea.id);
     setRawIdea('');
+    setSyncMessage('Guardando…');
+    setSyncError(false);
+
+    try {
+      await saveSharedIdea(idea);
+      setSyncMessage('Sincronizado');
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Sin conexión · guardado local');
+      setSyncError(true);
+    }
   }
 
   function toggleDictation() {
@@ -276,10 +438,20 @@ export default function ManolisimoApp() {
     }
   }
 
-  function updateStatus(id: number, status: IdeaStatus) {
+  async function updateStatus(id: number, status: IdeaStatus) {
     setIdeas((current) =>
       current.map((idea) => (idea.id === id ? { ...idea, status } : idea)),
     );
+    setSyncMessage('Guardando…');
+    setSyncError(false);
+
+    try {
+      await saveSharedStatus(id, status);
+      setSyncMessage('Sincronizado');
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Sin conexión · guardado local');
+      setSyncError(true);
+    }
   }
 
   return (
@@ -300,6 +472,10 @@ export default function ManolisimoApp() {
           <div>
             <p className="eyebrow">Entrada rápida</p>
             <h2 id="new-idea-title">Nueva gilipollez</h2>
+            <p className={syncError ? 'sync-status error' : 'sync-status'} aria-live="polite">
+              <span aria-hidden="true" />
+              {syncMessage}
+            </p>
           </div>
           <div className="idea-input">
             <textarea
@@ -384,9 +560,9 @@ export default function ManolisimoApp() {
                 <select
                   aria-label="Cambiar estado"
                   value={activeIdea.status}
-                  onChange={(event) =>
-                    updateStatus(activeIdea.id, event.target.value as IdeaStatus)
-                  }
+                  onChange={(event) => {
+                    void updateStatus(activeIdea.id, event.target.value as IdeaStatus);
+                  }}
                 >
                   {statuses.map((status) => (
                     <option key={status}>{status}</option>
