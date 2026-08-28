@@ -85,6 +85,27 @@ h2 {
   font-weight: 900;
 }
 
+.sync-status {
+  align-items: center;
+  color: var(--green);
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  gap: 7px;
+  margin: 12px 0 0;
+}
+
+.sync-status span {
+  background: currentColor;
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.sync-status.error {
+  color: var(--red);
+}
+
 .counter {
   align-items: center;
   aspect-ratio: 1;
