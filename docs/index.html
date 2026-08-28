@@ -92,6 +92,27 @@
         font-weight: 900;
       }
 
+      .sync-status {
+        align-items: center;
+        color: var(--green);
+        display: flex;
+        font-size: 0.78rem;
+        font-weight: 800;
+        gap: 7px;
+        margin: 12px 0 0;
+      }
+
+      .sync-status span {
+        background: currentColor;
+        border-radius: 50%;
+        height: 8px;
+        width: 8px;
+      }
+
+      .sync-status.error {
+        color: var(--red);
+      }
+
       .counter {
         align-items: center;
         aspect-ratio: 1;
@@ -475,6 +496,10 @@
         <div>
           <p class="eyebrow">Entrada rapida</p>
           <h2 id="new-idea-title">Nueva gilipollez</h2>
+          <p class="sync-status" id="sync-status" aria-live="polite">
+            <span aria-hidden="true"></span>
+            <strong>Conectando...</strong>
+          </p>
         </div>
         <div class="idea-input">
           <textarea
@@ -520,6 +545,12 @@
       const statuses = ["Pendiente", "Favorita", "Dibujando", "Hecha"];
       const filters = ["Todas", ...statuses];
       const storageKey = "manolisimo-ideas";
+      const databaseUrl = "https://vlajqijjekgmwwajugfl.supabase.co/rest/v1/ideas";
+      const databaseKey = "sb_publishable_rLOoqZ7G1wwLzG32tTZhtw_0mbOJWbL";
+      const databaseHeaders = {
+        apikey: databaseKey,
+        "Content-Type": "application/json",
+      };
 
       const examples = [
         {
@@ -583,6 +614,101 @@
 
       function saveIdeas() {
         window.localStorage.setItem(storageKey, JSON.stringify(ideas));
+      }
+
+      function toDatabaseIdea(idea) {
+        return {
+          id: idea.id,
+          title: idea.title,
+          raw: idea.raw,
+          summary: idea.summary,
+          why: idea.why,
+          illustration: idea.illustration,
+          product_text: idea.productText,
+          category: idea.category,
+          status: idea.status,
+          author: idea.author,
+          created_at: idea.createdAt,
+        };
+      }
+
+      function fromDatabaseIdea(idea) {
+        return {
+          id: Number(idea.id),
+          title: idea.title,
+          raw: idea.raw,
+          summary: idea.summary,
+          why: idea.why,
+          illustration: idea.illustration,
+          productText: idea.product_text,
+          category: idea.category,
+          status: idea.status,
+          author: idea.author,
+          createdAt: idea.created_at,
+        };
+      }
+
+      function setSyncStatus(message, isError = false) {
+        const syncNode = document.querySelector("#sync-status");
+        syncNode.classList.toggle("error", isError);
+        syncNode.querySelector("strong").textContent = message;
+      }
+
+      async function fetchSharedIdeas() {
+        const fields =
+          "id,title,raw,summary,why,illustration,product_text,category,status,author,created_at";
+        const response = await fetch(
+          `${databaseUrl}?select=${fields}&order=created_at.desc,id.desc`,
+          { headers: databaseHeaders },
+        );
+
+        if (!response.ok) {
+          throw new Error("No se han podido cargar las ideas compartidas.");
+        }
+
+        const sharedIdeas = await response.json();
+        return sharedIdeas.map(fromDatabaseIdea);
+      }
+
+      async function importLocalIdeas(localIdeas) {
+        if (!localIdeas.length) return;
+
+        const response = await fetch(`${databaseUrl}?on_conflict=id`, {
+          method: "POST",
+          headers: {
+            ...databaseHeaders,
+            Prefer: "resolution=ignore-duplicates,return=minimal",
+          },
+          body: JSON.stringify(localIdeas.map(toDatabaseIdea)),
+        });
+
+        if (!response.ok) {
+          throw new Error("No se han podido importar las ideas de este dispositivo.");
+        }
+      }
+
+      async function saveSharedIdea(idea) {
+        const response = await fetch(databaseUrl, {
+          method: "POST",
+          headers: { ...databaseHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify(toDatabaseIdea(idea)),
+        });
+
+        if (!response.ok) {
+          throw new Error("Guardado localmente; pendiente de sincronizar.");
+        }
+      }
+
+      async function saveSharedStatus(id, status) {
+        const response = await fetch(`${databaseUrl}?id=eq.${id}`, {
+          method: "PATCH",
+          headers: { ...databaseHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({ status }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Estado guardado localmente; pendiente de sincronizar.");
+        }
       }
 
       function escapeHtml(value) {
@@ -767,7 +893,7 @@
           </dl>
 
           <p class="github-note">
-            Esta version funciona directamente desde GitHub Pages y guarda los datos en este navegador.
+            Las ideas se sincronizan entre todos los navegadores que abran Manolisimo.
           </p>
 
           <footer class="idea-footer">
@@ -776,10 +902,18 @@
           </footer>
         `;
 
-        document.querySelector("#status-select").addEventListener("change", (event) => {
+        document.querySelector("#status-select").addEventListener("change", async (event) => {
           activeIdea.status = event.target.value;
           saveIdeas();
           render();
+          setSyncStatus("Guardando...");
+
+          try {
+            await saveSharedStatus(activeIdea.id, activeIdea.status);
+            setSyncStatus("Sincronizado");
+          } catch (error) {
+            setSyncStatus(error.message, true);
+          }
         });
       }
 
@@ -865,7 +999,7 @@
         }
       });
 
-      document.querySelector("#add-idea").addEventListener("click", () => {
+      document.querySelector("#add-idea").addEventListener("click", async () => {
         const rawIdeaNode = document.querySelector("#raw-idea");
         const authorNode = document.querySelector("#author");
 
@@ -881,9 +1015,45 @@
         rawIdeaNode.value = "";
         saveIdeas();
         render();
+        setSyncStatus("Guardando...");
+
+        try {
+          await saveSharedIdea(idea);
+          setSyncStatus("Sincronizado");
+        } catch (error) {
+          setSyncStatus(error.message, true);
+        }
       });
 
+      async function startSync() {
+        const localIdeas = [...ideas];
+
+        try {
+          await importLocalIdeas(localIdeas);
+          ideas = await fetchSharedIdeas();
+          activeId = ideas.find((idea) => idea.id === activeId)?.id || ideas[0]?.id;
+          saveIdeas();
+          render();
+          setSyncStatus("Sincronizado");
+        } catch {
+          setSyncStatus("Sin conexion · guardado local", true);
+        }
+      }
+
+      window.setInterval(async () => {
+        try {
+          ideas = await fetchSharedIdeas();
+          activeId = ideas.find((idea) => idea.id === activeId)?.id || ideas[0]?.id;
+          saveIdeas();
+          render();
+          setSyncStatus("Sincronizado");
+        } catch {
+          setSyncStatus("Sin conexion · guardado local", true);
+        }
+      }, 5000);
+
       render();
+      void startSync();
     </script>
   </body>
 </html>
