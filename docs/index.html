@@ -66,6 +66,23 @@
         margin-bottom: 18px;
       }
 
+      .brand-lockup {
+        align-items: center;
+        display: flex;
+        gap: 18px;
+      }
+
+      .brand-lockup img {
+        aspect-ratio: 1;
+        background: #f6c119;
+        border: 2px solid var(--ink);
+        box-shadow: 5px 5px 0 var(--ink);
+        flex: 0 0 86px;
+        height: 86px;
+        object-fit: cover;
+        width: 86px;
+      }
+
       .eyebrow {
         color: var(--green);
         font-size: 0.72rem;
@@ -147,6 +164,40 @@
           minmax(230px, 0.8fr);
         margin-bottom: 26px;
         padding: 20px;
+      }
+
+      .style-panel {
+        align-items: center;
+        background: #fffdf8;
+        border: 2px solid var(--ink);
+        display: grid;
+        gap: 18px;
+        grid-template-columns: minmax(220px, 0.8fr) minmax(300px, 1.4fr);
+        margin-bottom: 18px;
+        padding: 18px 20px;
+      }
+
+      .style-panel h2 {
+        font-size: clamp(1.25rem, 2.4vw, 1.95rem);
+        line-height: 1.08;
+      }
+
+      .style-panel ul {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .style-panel li {
+        border-left: 5px solid var(--yellow);
+        color: var(--muted);
+        font-size: 0.92rem;
+        font-weight: 750;
+        line-height: 1.3;
+        padding-left: 10px;
       }
 
       textarea {
@@ -440,6 +491,7 @@
         }
 
         .capture-panel,
+        .style-panel,
         .workspace {
           grid-template-columns: 1fr;
         }
@@ -476,15 +528,32 @@
           align-items: start;
           flex-direction: column;
         }
+
+        .brand-lockup {
+          align-items: flex-start;
+        }
+
+        .brand-lockup img {
+          flex-basis: 64px;
+          height: 64px;
+          width: 64px;
+        }
+
+        .style-panel ul {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar" aria-label="Cabecera Manolisimo">
-        <div>
-          <p class="eyebrow">Archivo vivo de tonterias ilustrables</p>
-          <h1>Manolisimo</h1>
+        <div class="brand-lockup">
+          <img src="./assets/benitez-logo.jpg" alt="Logo de Benitez+" />
+          <div>
+            <p class="eyebrow">Archivo vivo de tonterias ilustrables</p>
+            <h1>Manolisimo</h1>
+          </div>
         </div>
         <div class="counter" aria-label="Ideas guardadas">
           <strong id="idea-count">0</strong>
@@ -531,6 +600,14 @@
           </label>
           <button id="add-idea" type="button">Ordenar idea</button>
         </div>
+      </section>
+
+      <section class="style-panel" aria-labelledby="style-panel-title">
+        <div>
+          <p class="eyebrow">ADN Benitez+</p>
+          <h2 id="style-panel-title">Humor de refran reventado y personaje con gesto</h2>
+        </div>
+        <ul id="style-traits"></ul>
       </section>
 
       <nav class="status-tabs" aria-label="Filtrar ideas por estado" id="filters"></nav>
@@ -601,6 +678,23 @@
           author: "Los dos",
           createdAt: "2026-08-28",
         },
+      ];
+
+      const benitezTraits = [
+        "Linea negra gruesa y nerviosa sobre fondo limpio",
+        "Personajes de nariz protagonista, boca grande y gesto teatral",
+        "Colores planos con mostaza, naranja, negro, gris y algun golpe vivo",
+        "Humor de refran espanol torcido, literalidad absurda y costumbrismo bruto",
+      ];
+
+      const productPhrases = [
+        "Muchas gracias",
+        "Me hago el sordo",
+        "Igual se cae",
+        "Que viva esto",
+        "No era necesario",
+        "Ojo que viene",
+        "A mi manera",
       ];
 
       let ideas = readIdeas();
@@ -733,16 +827,28 @@
       function pickCategory(text) {
         const lower = text.toLowerCase();
 
+        if (/refran|dicho|mal anda|caballo regalado|palabras necias|cuervos/.test(lower)) {
+          return "Refran torcido";
+        }
+
+        if (/jefe|curro|trabajo|oficina|factura|reunion|excel|autonomo/.test(lower)) {
+          return "Trabajo absurdo";
+        }
+
+        if (/colega|amigo|equipo|pena|fiesta|futbol/.test(lower)) {
+          return "Musica y colegas";
+        }
+
+        if (/suegra|familia|cunado|vecino/.test(lower)) {
+          return "Familia peligrosa";
+        }
+
         if (/cable|movil|usb|ordenador|wifi|app|email|correo/.test(lower)) {
           return "Tecnologia cotidiana";
         }
 
         if (/gazpacho|taza|cafe|pan|tomate|croqueta|bocata|comida/.test(lower)) {
           return "Comida dramatica";
-        }
-
-        if (/factura|oficina|jefe|reunion|excel|autonomo/.test(lower)) {
-          return "Trabajo absurdo";
         }
 
         if (/señor|senor|vecino|cuñado|cunado/.test(lower)) {
@@ -753,6 +859,9 @@
           "Tecnologia cotidiana",
           "Comida dramatica",
           "Trabajo absurdo",
+          "Refran torcido",
+          "Musica y colegas",
+          "Familia peligrosa",
           "Criaturas administrativas",
           "Señores raros",
           "Objetos con ansiedad",
@@ -761,21 +870,53 @@
         return categoryHints[Math.floor(Math.random() * categoryHints.length)];
       }
 
+      function makeBenitezProductText(title, raw) {
+        const lower = raw.toLowerCase();
+
+        if (lower.includes("...")) {
+          return (
+            raw
+              .split("...")
+              .map((part) => part.trim())
+              .filter(Boolean)
+              .slice(-1)[0]
+              ?.replace(/[.]+$/g, "") || title
+          );
+        }
+
+        if (/[¿?¡!]/.test(raw) && raw.length <= 34) {
+          return raw.replace(/[.]+$/g, "");
+        }
+
+        if (title.length <= 22) {
+          return title;
+        }
+
+        return productPhrases[Math.floor(Math.random() * productPhrases.length)];
+      }
+
       function makeIdea(raw, author) {
         const trimmed = raw.trim();
         const category = pickCategory(trimmed);
         const title = titleCase(trimmed) || "Idea Sin Nombre";
         const subject = trimmed.replace(/[.]+$/g, "");
+        const isSaying =
+          /refran|dicho|\.{3}|mal anda|caballo regalado|palabras necias|cuervos/.test(
+            trimmed.toLowerCase(),
+          );
 
         return {
           id: Date.now(),
           title,
           raw: trimmed,
-          summary: `La idea gira alrededor de ${subject}, llevada a una escena clara y facil de recordar.`,
+          summary: isSaying
+            ? "La idea funciona como un refran conocido llevado hacia una salida mas tonta, literal y de camiseta."
+            : `La idea gira alrededor de ${subject}, convertida en una escena cotidiana con una exageracion clara.`,
           why:
-            "Funciona porque convierte una tonteria dicha en voz alta en una imagen concreta, exagerada y reconocible.",
-          illustration: `Manolo podria dibujar ${subject.toLowerCase()} como si fuese algo totalmente serio, con detalles cotidianos que hagan mas absurdo el contraste.`,
-          productText: title.length < 20 ? title : "Esto era necesario",
+            "Encaja con Benitez+ porque trata una frase normal como si fuese una situacion fisica real: poco decorado, gesto grande, remate seco y absurdo reconocible.",
+          illustration:
+            "Dibujarlo como una vineta limpia: personaje central de nariz marcada y boca expresiva, linea negra gruesa, sombra gris suave, dos o tres detalles de contexto y un color protagonista tipo mostaza, naranja, verde o rojo.",
+          productText: makeBenitezProductText(title, trimmed),
           category,
           status: "Pendiente",
           author: author.trim() || "Sin culpable",
@@ -919,6 +1060,9 @@
 
       function render() {
         document.querySelector("#idea-count").textContent = ideas.length;
+        document.querySelector("#style-traits").innerHTML = benitezTraits
+          .map((trait) => `<li>${escapeHtml(trait)}</li>`)
+          .join("");
         renderFilters();
         renderList();
         renderDetail();

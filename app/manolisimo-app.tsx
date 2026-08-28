@@ -129,9 +129,29 @@ const categoryHints = [
   'Tecnología cotidiana',
   'Comida dramática',
   'Trabajo absurdo',
+  'Refrán torcido',
+  'Música y colegas',
+  'Familia peligrosa',
   'Criaturas administrativas',
   'Señores raros',
   'Objetos con ansiedad',
+];
+
+const benitezTraits = [
+  'Línea negra gruesa y nerviosa sobre fondo limpio',
+  'Personajes de nariz protagonista, boca grande y gesto teatral',
+  'Colores planos con acentos mostaza, naranja, negro, gris y algún golpe vivo',
+  'Humor de refrán español torcido, literalidad absurda y costumbrismo bruto',
+];
+
+const productPhrases = [
+  'Muchas gracias',
+  'Me hago el sordo',
+  'Igual se cae',
+  'Que viva esto',
+  'No era necesario',
+  'Ojo que viene',
+  'A mi manera',
 ];
 
 function titleCase(value: string) {
@@ -147,16 +167,28 @@ function titleCase(value: string) {
 function pickCategory(text: string) {
   const lower = text.toLowerCase();
 
+  if (/refran|refrán|dicho|mal anda|caballo regalado|palabras necias|cuervos/.test(lower)) {
+    return 'Refrán torcido';
+  }
+
+  if (/jefe|curro|trabajo|oficina|factura|reunion|reunión|excel|autonomo|autónomo/.test(lower)) {
+    return 'Trabajo absurdo';
+  }
+
+  if (/colega|amigo|equipo|peña|fiesta|futbol|fútbol/.test(lower)) {
+    return 'Música y colegas';
+  }
+
+  if (/suegra|familia|cuñado|cunado|vecino/.test(lower)) {
+    return 'Familia peligrosa';
+  }
+
   if (/cable|movil|móvil|usb|ordenador|wifi|app|email|correo/.test(lower)) {
     return 'Tecnología cotidiana';
   }
 
   if (/gazpacho|taza|cafe|café|pan|tomate|croqueta|bocata|comida/.test(lower)) {
     return 'Comida dramática';
-  }
-
-  if (/factura|oficina|jefe|reunion|reunión|excel|autonomo|autónomo/.test(lower)) {
-    return 'Trabajo absurdo';
   }
 
   if (/señor|senor|vecino|cuñado|cunado/.test(lower)) {
@@ -166,21 +198,49 @@ function pickCategory(text: string) {
   return categoryHints[Math.floor(Math.random() * categoryHints.length)];
 }
 
+function makeBenitezProductText(title: string, raw: string) {
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('...')) {
+    return raw
+      .split('...')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .slice(-1)[0]
+      ?.replace(/[.]+$/g, '') || title;
+  }
+
+  if (/[¿?¡!]/.test(raw) && raw.length <= 34) {
+    return raw.replace(/[.]+$/g, '');
+  }
+
+  if (title.length <= 22) {
+    return title;
+  }
+
+  return productPhrases[Math.floor(Math.random() * productPhrases.length)];
+}
+
 function makeIdea(raw: string, author: string): Idea {
   const trimmed = raw.trim();
   const category = pickCategory(trimmed);
   const title = titleCase(trimmed) || 'Idea Sin Nombre';
   const subject = trimmed.replace(/[.]+$/g, '');
+  const isSaying = /refran|refrán|dicho|\.{3}|mal anda|caballo regalado|palabras necias|cuervos/.test(
+    trimmed.toLowerCase(),
+  );
 
   return {
     id: Date.now(),
     title,
     raw: trimmed,
-    summary: `La idea gira alrededor de ${subject}, llevada a una escena clara y fácil de recordar.`,
+    summary: isSaying
+      ? `La idea funciona como un refrán conocido llevado hacia una salida más tonta, literal y de camiseta.`
+      : `La idea gira alrededor de ${subject}, convertida en una escena cotidiana con una exageración clara.`,
     why:
-      'Funciona porque convierte una tontería dicha en voz alta en una imagen concreta, exagerada y reconocible.',
-    illustration: `Manolo podría dibujar ${subject.toLowerCase()} como si fuese algo totalmente serio, con detalles cotidianos que hagan más absurdo el contraste.`,
-    productText: title.length < 20 ? title : 'Esto era necesario',
+      'Encaja con Benítez+ porque trata una frase normal como si fuese una situación física real: poco decorado, gesto grande, remate seco y absurdo reconocible.',
+    illustration: `Dibujarlo como una viñeta limpia: personaje central de nariz marcada y boca expresiva, línea negra gruesa, sombra gris suave, dos o tres detalles de contexto y un color protagonista tipo mostaza, naranja, verde o rojo.`,
+    productText: makeBenitezProductText(title, trimmed),
     category,
     status: 'Pendiente',
     author: author.trim() || 'Sin culpable',
@@ -356,7 +416,8 @@ export default function ManolisimoApp() {
     return ideas.filter((idea) => idea.status === activeStatus);
   }, [activeStatus, ideas]);
 
-  const activeIdea = ideas.find((idea) => idea.id === activeId) ?? ideas[0];
+  const activeIdea =
+    filteredIdeas.find((idea) => idea.id === activeId) ?? filteredIdeas[0];
 
   async function addIdea() {
     if (!rawIdea.trim()) {
@@ -458,9 +519,12 @@ export default function ManolisimoApp() {
     <main className="min-h-screen bg-[#f7f4ee] text-[#20201c]">
       <section className="app-shell">
         <header className="topbar" aria-label="Cabecera Manolisimo">
-          <div>
-            <p className="eyebrow">Archivo vivo de tonterías ilustrables</p>
-            <h1>Manolisimo</h1>
+          <div className="brand-lockup">
+            <img src="/benitez-logo.jpg" alt="Logo de Benítez+" />
+            <div>
+              <p className="eyebrow">Archivo vivo de tonterías ilustrables</p>
+              <h1>Manolisimo</h1>
+            </div>
           </div>
           <div className="counter" aria-label={`${ideas.length} ideas guardadas`}>
             <strong>{ideas.length}</strong>
@@ -517,6 +581,18 @@ export default function ManolisimoApp() {
               Ordenar idea
             </button>
           </div>
+        </section>
+
+        <section className="style-panel" aria-labelledby="style-panel-title">
+          <div>
+            <p className="eyebrow">ADN Benítez+</p>
+            <h2 id="style-panel-title">Humor de refrán reventado y personaje con gesto</h2>
+          </div>
+          <ul>
+            {benitezTraits.map((trait) => (
+              <li key={trait}>{trait}</li>
+            ))}
+          </ul>
         </section>
 
         <nav className="status-tabs" aria-label="Filtrar ideas por estado">
