@@ -69,8 +69,41 @@ type DatabaseIdea = {
   created_at: string;
 };
 
+type IdeaSketch = {
+  id: number;
+  ideaId: number;
+  storagePath: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  publicUrl: string;
+};
+
+type DatabaseSketch = {
+  id: number;
+  idea_id: number;
+  storage_path: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
 const databaseUrl = 'https://vlajqijjekgmwwajugfl.supabase.co/rest/v1/ideas';
+const sketchesDatabaseUrl = 'https://vlajqijjekgmwwajugfl.supabase.co/rest/v1/idea_sketches';
+const sketchesStorageUrl = 'https://vlajqijjekgmwwajugfl.supabase.co/storage/v1/object/idea-sketches';
+const sketchesPublicUrl = 'https://vlajqijjekgmwwajugfl.supabase.co/storage/v1/object/public/idea-sketches';
 const databaseKey = 'sb_publishable_rLOoqZ7G1wwLzG32tTZhtw_0mbOJWbL';
+const maxSketchSize = 5 * 1024 * 1024;
+const allowedSketchTypes = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]);
 
 const databaseHeaders = {
   apikey: databaseKey,
@@ -320,6 +353,86 @@ async function fetchSharedIdeas() {
   return data.map(fromDatabaseIdea);
 }
 
+function sketchPublicUrl(storagePath: string) {
+  return `${sketchesPublicUrl}/${storagePath.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function fromDatabaseSketch(sketch: DatabaseSketch): IdeaSketch {
+  return {
+    id: Number(sketch.id),
+    ideaId: Number(sketch.idea_id),
+    storagePath: sketch.storage_path,
+    fileName: sketch.file_name,
+    mimeType: sketch.mime_type,
+    sizeBytes: Number(sketch.size_bytes),
+    createdAt: sketch.created_at,
+    publicUrl: sketchPublicUrl(sketch.storage_path),
+  };
+}
+
+async function fetchSharedSketches() {
+  const response = await fetch(
+    `${sketchesDatabaseUrl}?select=id,idea_id,storage_path,file_name,mime_type,size_bytes,created_at&order=created_at.desc,id.desc`,
+    { headers: databaseHeaders },
+  );
+
+  if (!response.ok) {
+    throw new Error('No se han podido cargar los bocetos adjuntos.');
+  }
+
+  return ((await response.json()) as DatabaseSketch[]).map(fromDatabaseSketch);
+}
+
+function safeFileName(name: string) {
+  const extension = name.includes('.') ? `.${name.split('.').pop()?.toLowerCase()}` : '';
+  const base = name
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'boceto';
+
+  return `${base}${extension}`;
+}
+
+async function uploadSharedSketch(ideaId: number, file: File) {
+  const storagePath = `${ideaId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+  const encodedPath = storagePath.split('/').map(encodeURIComponent).join('/');
+  const uploadResponse = await fetch(`${sketchesStorageUrl}/${encodedPath}`, {
+    method: 'POST',
+    headers: {
+      apikey: databaseKey,
+      'Content-Type': file.type,
+      'x-upsert': 'false',
+    },
+    body: file,
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error(`No se ha podido subir ${file.name}.`);
+  }
+
+  const metadataResponse = await fetch(sketchesDatabaseUrl, {
+    method: 'POST',
+    headers: { ...databaseHeaders, Prefer: 'return=representation' },
+    body: JSON.stringify({
+      idea_id: ideaId,
+      storage_path: storagePath,
+      file_name: file.name,
+      mime_type: file.type,
+      size_bytes: file.size,
+    }),
+  });
+
+  if (!metadataResponse.ok) {
+    throw new Error(`El archivo ${file.name} se ha subido, pero no se ha podido adjuntar a la ficha.`);
+  }
+
+  const [savedSketch] = (await metadataResponse.json()) as DatabaseSketch[];
+  return fromDatabaseSketch(savedSketch);
+}
+
 async function importLocalIdeas(ideas: Idea[]) {
   if (!ideas.length) {
     return;
@@ -532,6 +645,7 @@ function exportIdeaPdf(idea: Idea) {
 
 export default function ManolisimoApp() {
   const [ideas, setIdeas] = useState<Idea[]>(examples);
+  const [sketches, setSketches] = useState<IdeaSketch[]>([]);
   const [rawIdea, setRawIdea] = useState('');
   const [author, setAuthor] = useState('Packo');
   const [activeStatus, setActiveStatus] = useState<IdeaStatus | 'Todas'>('Todas');
@@ -543,6 +657,9 @@ export default function ManolisimoApp() {
   const [syncError, setSyncError] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<EditableIdeaFields | null>(null);
+  const [uploadMessage, setUploadMessage] = useState('');
+  const [uploadError, setUploadError] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const speechBaseRef = useRef('');
 
@@ -554,10 +671,14 @@ export default function ManolisimoApp() {
     async function startSync() {
       try {
         await importLocalIdeas(localIdeas);
-        const sharedIdeas = await fetchSharedIdeas();
+        const [sharedIdeas, sharedSketches] = await Promise.all([
+          fetchSharedIdeas(),
+          fetchSharedSketches(),
+        ]);
 
         if (!cancelled) {
           setIdeas(sharedIdeas);
+          setSketches(sharedSketches);
           setSyncMessage('Sincronizado');
           setSyncError(false);
         }
@@ -574,10 +695,14 @@ export default function ManolisimoApp() {
 
     const interval = window.setInterval(async () => {
       try {
-        const sharedIdeas = await fetchSharedIdeas();
+        const [sharedIdeas, sharedSketches] = await Promise.all([
+          fetchSharedIdeas(),
+          fetchSharedSketches(),
+        ]);
 
         if (!cancelled) {
           setIdeas(sharedIdeas);
+          setSketches(sharedSketches);
           setSyncMessage('Sincronizado');
           setSyncError(false);
         }
@@ -614,6 +739,9 @@ export default function ManolisimoApp() {
   const activeIdea =
     filteredIdeas.find((idea) => idea.id === activeId) ?? filteredIdeas[0];
   const isEditing = Boolean(activeIdea && editingId === activeIdea.id && draft);
+  const activeSketches = activeIdea
+    ? sketches.filter((sketch) => sketch.ideaId === activeIdea.id)
+    : [];
 
   async function addIdea() {
     if (!rawIdea.trim()) {
@@ -745,6 +873,45 @@ export default function ManolisimoApp() {
     } catch (error) {
       setSyncMessage(error instanceof Error ? error.message : 'Sin conexión · guardado local');
       setSyncError(true);
+    }
+  }
+
+  async function attachSketches(files: FileList | null) {
+    if (!activeIdea || !files?.length) {
+      return;
+    }
+
+    const selectedFiles = Array.from(files).slice(0, 5);
+    const invalidFile = selectedFiles.find(
+      (file) => !allowedSketchTypes.has(file.type) || file.size <= 0 || file.size > maxSketchSize,
+    );
+
+    if (invalidFile) {
+      setUploadMessage(
+        `${invalidFile.name} no es una imagen compatible o supera el límite de 5 MB.`,
+      );
+      setUploadError(true);
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(false);
+
+    try {
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        setUploadMessage(`Subiendo ${index + 1} de ${selectedFiles.length}…`);
+        const savedSketch = await uploadSharedSketch(activeIdea.id, selectedFiles[index]);
+        setSketches((current) => [savedSketch, ...current]);
+      }
+
+      setUploadMessage(
+        selectedFiles.length === 1 ? 'Boceto adjuntado' : `${selectedFiles.length} bocetos adjuntados`,
+      );
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'No se han podido adjuntar los bocetos.');
+      setUploadError(true);
+    } finally {
+      setIsUploading(false);
     }
   }
 
@@ -932,6 +1099,52 @@ export default function ManolisimoApp() {
                   </div>
                 ))}
               </dl>
+
+              <section className="sketches-section" aria-labelledby="sketches-title">
+                <div className="sketches-heading">
+                  <div>
+                    <p className="eyebrow">Material visual</p>
+                    <h3 id="sketches-title">Bocetos adjuntos</h3>
+                  </div>
+                  <label className={isUploading ? 'sketch-upload disabled' : 'sketch-upload'}>
+                    <input
+                      accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+                      disabled={isUploading}
+                      multiple
+                      onChange={(event) => {
+                        void attachSketches(event.target.files);
+                        event.target.value = '';
+                      }}
+                      type="file"
+                    />
+                    {isUploading ? 'Subiendo…' : '+ Adjuntar bocetos'}
+                  </label>
+                </div>
+
+                {activeSketches.length ? (
+                  <div className="sketch-grid">
+                    {activeSketches.map((sketch) => (
+                      <a
+                        aria-label={`Abrir boceto ${sketch.fileName}`}
+                        href={sketch.publicUrl}
+                        key={sketch.id}
+                        rel="noreferrer"
+                        target="_blank"
+                        title={sketch.fileName}
+                      >
+                        <img alt={sketch.fileName} loading="lazy" src={sketch.publicUrl} />
+                        <span>{sketch.fileName}</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="sketch-empty">Todavía no hay bocetos en esta ficha.</p>
+                )}
+
+                <p className={uploadError ? 'upload-message error' : 'upload-message'} aria-live="polite">
+                  {uploadMessage || 'JPG, PNG, WebP, GIF o foto del móvil · máximo 5 MB por archivo'}
+                </p>
+              </section>
 
               <footer>
                 <span>{activeIdea.author}</span>
