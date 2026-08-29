@@ -424,6 +424,12 @@ select {
   background: var(--yellow);
 }
 
+.tool-button.danger {
+  background: #fff0ea;
+  border-color: #9b2c17;
+  color: #9b2c17;
+}
+
 .idea-fields {
   display: grid;
   gap: 14px;

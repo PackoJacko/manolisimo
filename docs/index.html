@@ -447,6 +447,12 @@
         background: var(--yellow);
       }
 
+      .tool-button.danger {
+        background: #fff0ea;
+        border-color: #9b2c17;
+        color: #9b2c17;
+      }
+
       .idea-fields {
         display: grid;
         gap: 14px;
@@ -763,7 +769,7 @@
     </main>
 
     <script>
-      const statuses = ["Pendiente", "Favorita", "Dibujando", "Hecha"];
+      const statuses = ["Pendiente", "Favorita", "Dibujando", "Hecha", "Descartada"];
       const filters = ["Todas", ...statuses];
       const storageKey = "manolisimo-ideas";
       const databaseUrl = "https://vlajqijjekgmwwajugfl.supabase.co/rest/v1/ideas";
@@ -1083,6 +1089,17 @@
 
         if (!response.ok) {
           throw new Error("Cambios guardados localmente; pendiente de sincronizar.");
+        }
+      }
+
+      async function deleteSharedIdea(id) {
+        const response = await fetch(`${databaseUrl}?id=eq.${id}`, {
+          method: "DELETE",
+          headers: { ...databaseHeaders, Prefer: "return=minimal" },
+        });
+
+        if (!response.ok) {
+          throw new Error("No se ha podido eliminar la ficha compartida.");
         }
       }
 
@@ -1447,6 +1464,11 @@
               </select>
               <button class="tool-button" id="pdf-button" type="button">PDF</button>
               ${
+                activeIdea.status === "Descartada"
+                  ? `<button class="tool-button danger" id="delete-button" type="button">Eliminar</button>`
+                  : ""
+              }
+              ${
                 isEditing
                   ? `
                     <button class="tool-button primary" id="save-edit-button" type="button">Guardar</button>
@@ -1553,6 +1575,35 @@
         document.querySelector("#pdf-button").addEventListener("click", () => {
           exportIdeaPdf(activeIdea);
         });
+
+        const deleteButton = document.querySelector("#delete-button");
+        if (deleteButton) {
+          deleteButton.addEventListener("click", async () => {
+            const confirmation = window.prompt(
+              `Para eliminar definitivamente "${activeIdea.title}", escribe ELIMINAR.`,
+            );
+
+            if (confirmation !== "ELIMINAR") {
+              return;
+            }
+
+            ideas = ideas.filter((idea) => idea.id !== activeIdea.id);
+            sketches = sketches.filter((sketch) => sketch.ideaId !== activeIdea.id);
+            editingId = null;
+            editDraft = null;
+            activeId = ideas[0]?.id || 0;
+            saveIdeas();
+            render();
+            setSyncStatus("Eliminando...");
+
+            try {
+              await deleteSharedIdea(activeIdea.id);
+              setSyncStatus("Ficha eliminada");
+            } catch (error) {
+              setSyncStatus(error.message || "No se ha podido eliminar la ficha.", true);
+            }
+          });
+        }
 
         const editButton = document.querySelector("#edit-button");
         if (editButton) {

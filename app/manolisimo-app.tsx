@@ -34,7 +34,7 @@ declare global {
   }
 }
 
-type IdeaStatus = 'Pendiente' | 'Favorita' | 'Dibujando' | 'Hecha';
+type IdeaStatus = 'Pendiente' | 'Favorita' | 'Dibujando' | 'Hecha' | 'Descartada';
 
 type Idea = {
   id: number;
@@ -110,7 +110,7 @@ const databaseHeaders = {
   'Content-Type': 'application/json',
 };
 
-const statuses: IdeaStatus[] = ['Pendiente', 'Favorita', 'Dibujando', 'Hecha'];
+const statuses: IdeaStatus[] = ['Pendiente', 'Favorita', 'Dibujando', 'Hecha', 'Descartada'];
 
 const examples: Idea[] = [
   {
@@ -491,6 +491,17 @@ async function saveSharedIdeaDetails(id: number, fields: EditableIdeaFields) {
 
   if (!response.ok) {
     throw new Error('Cambios guardados aquí; pendiente de sincronizar.');
+  }
+}
+
+async function deleteSharedIdea(id: number) {
+  const response = await fetch(`${databaseUrl}?id=eq.${id}`, {
+    method: 'DELETE',
+    headers: { ...databaseHeaders, Prefer: 'return=minimal' },
+  });
+
+  if (!response.ok) {
+    throw new Error('No se ha podido eliminar la ficha compartida.');
   }
 }
 
@@ -875,6 +886,38 @@ export default function ManolisimoApp() {
     }
   }
 
+  async function deleteIdea(idea: Idea) {
+    if (idea.status !== 'Descartada') {
+      window.alert('Primero marca la ficha como Descartada para poder eliminarla.');
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Para eliminar definitivamente "${idea.title}", escribe ELIMINAR.`,
+    );
+
+    if (confirmation !== 'ELIMINAR') {
+      return;
+    }
+
+    const remainingIdeas = ideas.filter((currentIdea) => currentIdea.id !== idea.id);
+    setIdeas(remainingIdeas);
+    setSketches((current) => current.filter((sketch) => sketch.ideaId !== idea.id));
+    setEditingId(null);
+    setDraft(null);
+    setActiveId(remainingIdeas[0]?.id ?? 0);
+    setSyncMessage('Eliminando…');
+    setSyncError(false);
+
+    try {
+      await deleteSharedIdea(idea.id);
+      setSyncMessage('Ficha eliminada');
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'No se ha podido eliminar la ficha.');
+      setSyncError(true);
+    }
+  }
+
   async function attachSketches(files: FileList | null) {
     if (!activeIdea || !files?.length) {
       return;
@@ -1047,6 +1090,17 @@ export default function ManolisimoApp() {
                   <button className="tool-button" onClick={() => exportIdeaPdf(activeIdea)} type="button">
                     PDF
                   </button>
+                  {activeIdea.status === 'Descartada' && (
+                    <button
+                      className="tool-button danger"
+                      onClick={() => {
+                        void deleteIdea(activeIdea);
+                      }}
+                      type="button"
+                    >
+                      Eliminar
+                    </button>
+                  )}
                   {isEditing ? (
                     <>
                       <button
